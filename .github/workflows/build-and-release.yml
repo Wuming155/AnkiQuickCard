@@ -1,0 +1,113 @@
+name: Build and Release
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ v* ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        python-version: [3.8, 3.9, 3.10]
+
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install requests pyinstaller
+    
+    - name: Build portable version
+      run: |
+        pyinstaller --onefile --windowed --name AnkiQuickCard main.py
+    
+    - name: Build installed version
+      run: |
+        pyinstaller --name AnkiQuickCard --windowed main.py
+    
+    - name: Rename artifacts
+      run: |
+        Move-Item -Path "dist\AnkiQuickCard.exe" -Destination "dist\AnkiQuickCard-portable-${{ matrix.python-version }}.exe"
+        Move-Item -Path "dist\AnkiQuickCard" -Destination "dist\AnkiQuickCard-install-${{ matrix.python-version }}"
+    
+    - name: Upload portable artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: AnkiQuickCard-portable-${{ matrix.python-version }}
+        path: dist\AnkiQuickCard-portable-${{ matrix.python-version }}.exe
+    
+    - name: Upload installed artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: AnkiQuickCard-install-${{ matrix.python-version }}
+        path: dist\AnkiQuickCard-install-${{ matrix.python-version }}
+
+  release:
+    needs: build
+    runs-on: windows-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: artifacts
+    
+    - name: List artifacts
+      run: ls -la artifacts
+    
+    - name: Create Release
+      id: create_release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ github.ref }}
+        release_name: Release ${{ github.ref }}
+        draft: false
+        prerelease: false
+    
+    - name: Upload portable releases
+      run: |
+        $artifactDirs = Get-ChildItem -Path "artifacts" -Directory
+        foreach ($dir in $artifactDirs) {
+          if ($dir.Name -like "*portable*" -and (Test-Path "$($dir.FullName)\*.exe")) {
+            $exeFile = Get-ChildItem -Path "$($dir.FullName)" -Filter "*.exe" | Select-Object -First 1
+            if ($exeFile) {
+              echo "Uploading $($exeFile.Name)"
+              curl.exe -X POST "${{ steps.create_release.outputs.upload_url }}" \
+                -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+                -H "Content-Type: application/octet-stream" \
+                --data-binary "@$($exeFile.FullName)" \
+                -H "name: $($exeFile.Name)"
+            }
+          }
+        }
+    
+    - name: Upload installed releases
+      run: |
+        $artifactDirs = Get-ChildItem -Path "artifacts" -Directory
+        foreach ($dir in $artifactDirs) {
+          if ($dir.Name -like "*install*" -and (Test-Path "$($dir.FullName)")) {
+            $zipFile = "$($dir.Name).zip"
+            Compress-Archive -Path "$($dir.FullName)\*" -DestinationPath "$zipFile"
+            echo "Uploading $zipFile"
+            curl.exe -X POST "${{ steps.create_release.outputs.upload_url }}" \
+              -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+              -H "Content-Type: application/zip" \
+              --data-binary "@$zipFile" \
+              -H "name: $zipFile"
+          }
+        }
