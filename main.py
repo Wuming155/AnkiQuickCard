@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk
 import requests
 import re
 import time
@@ -116,7 +116,7 @@ class AnkiQuickCard:
     def copy_preview(self):
         self.root.clipboard_clear()
         self.root.clipboard_append(self.preview_text.get(1.0, tk.END))
-        messagebox.showinfo("提示", "预览内容已复制到剪贴板")
+        self.status_var.set("提示：预览内容已复制到剪贴板")
     
     def clear_all(self):
         self.text_input.delete(1.0, tk.END)
@@ -133,13 +133,11 @@ class AnkiQuickCard:
             response = requests.post(url, json=payload, timeout=3)
             version = response.json()["result"]
             self.status_var.set(f"Anki Connect连接成功，版本：{version}")
-            messagebox.showinfo("连接测试", f"Anki Connect连接成功，版本：{version}")
             # 重新获取牌组列表
             self.get_deck_names()
             return True
         except Exception as e:
             self.status_var.set("连接失败：请检查Anki是否启动，或Anki Connect是否安装")
-            messagebox.showerror("连接测试", "连接失败：请检查Anki是否启动，或Anki Connect是否安装")
             return False
     
     def get_deck_names(self):
@@ -155,7 +153,7 @@ class AnkiQuickCard:
     def parse_text(self):
         text = self.text_input.get(1.0, tk.END).strip()
         if not text:
-            messagebox.showwarning("提示", "请输入文本")
+            self.status_var.set("提示：请输入文本")
             return
         
         self.cards = []
@@ -195,7 +193,7 @@ class AnkiQuickCard:
     
     def push_to_anki(self):
         if not self.cards:
-            messagebox.showwarning("提示", "请先解析文本")
+            self.status_var.set("提示：请先解析文本")
             return
         
         # 测试连接
@@ -204,16 +202,15 @@ class AnkiQuickCard:
         
         tag = self.tag_entry.get().strip()
         if not tag:
-            messagebox.showwarning("提示", "请输入标签")
+            self.status_var.set("提示：请输入标签")
             return
         
-        # 过滤标签中的非法字符
-        tag = re.sub(r'\s+', '-', tag)
-        tag = re.sub(r'[^a-zA-Z0-9_\-\u4e00-\u9fa5]', '', tag)
+        # 保留原始标签，不进行任何过滤
+        pass
         
         deck_name = self.deck_var.get().strip()
         if not deck_name:
-            messagebox.showwarning("提示", "请选择或输入牌组")
+            self.status_var.set("提示：请选择或输入牌组")
             return
         
         # 检查牌组是否存在，不存在则创建
@@ -227,7 +224,7 @@ class AnkiQuickCard:
                     self.deck_names.append(deck_name)
                     self.deck_combobox['values'] = self.deck_names
             except Exception as e:
-                messagebox.showerror("错误", f"创建牌组失败：{str(e)}")
+                self.status_var.set(f"错误：创建牌组失败：{str(e)}")
                 return
         
         # 启动后台线程执行推送
@@ -272,9 +269,6 @@ class AnkiQuickCard:
         total = len(self.cards)
         self.root.after(0, lambda total=total, success_count=success_count, fail_count=fail_count, tag=tag, deck_name=deck_name:
             self.status_var.set(f"推送完成！共解析{total}张卡片，成功推送{success_count}张，失败{fail_count}张，标签：{tag}，牌组：{deck_name}")
-        )
-        self.root.after(0, lambda total=total, success_count=success_count, fail_count=fail_count, tag=tag, deck_name=deck_name:
-            messagebox.showinfo("推送完成", f"共解析{total}张卡片，成功推送{success_count}张，失败{fail_count}张\n标签：{tag}\n牌组：{deck_name}")
         )
     
     def push_cloze_card(self, deck_name, tag, text):
